@@ -13,6 +13,7 @@ import {
 
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
+import { formatINR } from "../utils/currency";
 
 function Orders() {
   const [orders, setOrders] = useState([]);
@@ -21,27 +22,34 @@ function Orders() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    let active = true;
 
-  async function loadOrders() {
-    try {
-      setLoading(true);
-      setError("");
-
-      const data = await getMyOrders();
-
-      setOrders(
-        Array.isArray(data)
-          ? data
-          : data?.items || []
-      );
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
+    async function loadOrders() {
+      try {
+        const data = await getMyOrders();
+        if (active) {
+          setOrders(
+            Array.isArray(data)
+              ? data
+              : data?.items || []
+          );
+        }
+      } catch (requestError) {
+        if (active) {
+          setError(requestError.message || "Unable to load your orders.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
     }
-  }
+
+    loadOrders();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -75,11 +83,10 @@ function Orders() {
               </h2>
 
               <p>
-                Total: ₹
-                {Number(
-                  order.totalAmount
-                ).toLocaleString()}
+                Date: {order.orderDate ? new Date(order.orderDate).toLocaleDateString() : "Unavailable"}
               </p>
+
+              <p>Total: {formatINR(order.totalAmount)}</p>
 
               <p>
                 Status:{" "}

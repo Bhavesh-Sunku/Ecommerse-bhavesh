@@ -3,22 +3,20 @@ using ECommerce.Business.DTOs.Orders;
 using ECommerce.Business.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace ECommerce.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class OrdersController : ControllerBase
+public class OrdersController(IOrderService orderService, ILogger<OrdersController> logger) : ControllerBase
 {
-    private readonly IOrderService _orderService;
+    private readonly IOrderService _orderService = orderService;
+    private readonly ILogger<OrdersController> _logger = logger;
 
-    public OrdersController(IOrderService orderService)
-    {
-        _orderService = orderService;
-    }
 
-    [HttpPost]
+    [HttpPost("items")]
     public async Task<IActionResult> CreateOrder(
         CreateOrderDto dto)
     {
@@ -35,7 +33,21 @@ public class OrdersController : ControllerBase
             order);
     }
 
+    [HttpPost]
+    [HttpPost("from-cart")]
+    public async Task<IActionResult> CreateOrderFromCart(
+        PlaceOrderFromCartDto dto)
+    {
+        var order = await _orderService.CreateFromCartAsync(GetUserId(), dto);
+
+        return CreatedAtAction(
+            nameof(GetOrder),
+            new { id = order.Id },
+            order);
+    }
+
     [HttpGet]
+    [HttpGet("my-orders")]
     public async Task<IActionResult> GetMyOrders()
     {
         var userId = GetUserId();

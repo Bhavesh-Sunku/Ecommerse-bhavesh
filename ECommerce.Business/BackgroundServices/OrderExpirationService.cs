@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using ECommerce.DataAccess.Repositories.Interfaces;
+using ECommerce.Business.Interfaces;
 using ECommerce.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -52,6 +53,9 @@ public class OrderExpirationService : BackgroundService
         var orderRepository =
             scope.ServiceProvider
                 .GetRequiredService<IOrderRepository>();
+        var productService =
+            scope.ServiceProvider
+                .GetRequiredService<IProductService>();
 
         var cutoff =
             DateTime.UtcNow.AddMinutes(-30);
@@ -62,14 +66,17 @@ public class OrderExpirationService : BackgroundService
 
         foreach (var order in oldOrders)
         {
-            order.Status =
-                OrderStatus.Cancelled;
+            var cancelled = await orderRepository.CancelPendingWithRestockAsync(
+                order.Id,
+                order.UserId);
 
-            await orderRepository.UpdateAsync(order);
-
-            _logger.LogInformation(
-                "Order {OrderId} expired and was cancelled.",
-                order.Id);
+            if (cancelled)
+            {
+                productService.InvalidateCatalogCache();
+                _logger.LogInformation(
+                    "Order {OrderId} expired, was cancelled, and its stock was restored.",
+                    order.Id);
+            }
         }
     }
 }

@@ -1,0 +1,59 @@
+name: Deploy approved Kubernetes release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: Immutable Git commit SHA tag already published to ACR
+        required: true
+        type: string
+      confirm-deploy:
+        description: Set true only after reviewing the target cluster and release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: inputs.confirm-deploy
+    runs-on: ubuntu-latest
+    environment: k8s-production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Kubernetes access
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "Configure KUBE_CONFIG as a protected environment secret."
+            exit 1
+          fi
+          printf '%s' "$KUBE_CONFIG" > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+      - name: Verify target and apply reviewed manifests
+        env:
+          IMAGE_TAG: ${{ inputs.image-tag }}
+        run: |
+          set -euo pipefail
+          kubectl config current-context
+          if [[ ! "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "image-tag must be a full Git commit SHA."
+            exit 1
+          fi
+          sed -i "s/replace-with-git-sha/$IMAGE_TAG/g" k8s/kustomization.yaml
+          kubectl apply -k k8s
+      - name: Wait for rollout completion
+        run: |
+          set -euo pipefail
+          for deployment in product-service user-service order-service payment-service gateway frontend; do
+            kubectl -n ecommerce rollout status "deployment/$deployment" --timeout=5m
+          done

@@ -1,0 +1,178 @@
+services:
+  product-service:
+    image: localhost/ecommerce-product-service:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.ProductService/Containerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__ProductService: ${PRODUCT_DB_CONNECTION:?Set PRODUCT_DB_CONNECTION}
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:?Set JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE:?Set JWT_AUDIENCE}
+      InternalServices__ApiKey: ${PRODUCT_INTERNAL_SERVICE_KEY:?Set PRODUCT_INTERNAL_SERVICE_KEY}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  user-service:
+    image: localhost/ecommerce-user-service:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.UserService/Containerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__UserService: ${USER_DB_CONNECTION:?Set USER_DB_CONNECTION}
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:?Set JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE:?Set JWT_AUDIENCE}
+      Jwt__ExpiryMinutes: "60"
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  order-service:
+    image: localhost/ecommerce-order-service:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.OrderService/Containerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__OrderService: ${ORDER_DB_CONNECTION:?Set ORDER_DB_CONNECTION}
+      ProductService__BaseUrl: ${PRODUCT_SERVICE_URL:-http://product-service:8080/}
+      ProductService__InternalServiceKey: ${PRODUCT_INTERNAL_SERVICE_KEY:?Set PRODUCT_INTERNAL_SERVICE_KEY}
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:?Set JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE:?Set JWT_AUDIENCE}
+      PaymentService__InternalServiceKey: ${PAYMENT_INTERNAL_SERVICE_KEY:?Set PAYMENT_INTERNAL_SERVICE_KEY}
+    expose:
+      - "8080"
+    depends_on:
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  payment-service:
+    image: localhost/ecommerce-payment-service:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.PaymentService/Containerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__PaymentService: ${PAYMENT_DB_CONNECTION:?Set PAYMENT_DB_CONNECTION}
+      OrderService__BaseUrl: ${ORDER_SERVICE_URL:-http://order-service:8080/}
+      PaymentService__InternalServiceKey: ${PAYMENT_INTERNAL_SERVICE_KEY:?Set PAYMENT_INTERNAL_SERVICE_KEY}
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:?Set JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE:?Set JWT_AUDIENCE}
+    expose:
+      - "8080"
+    depends_on:
+      order-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  gateway:
+    image: localhost/ecommerce-gateway:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.Gateway/Containerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:?Set JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE:?Set JWT_AUDIENCE}
+      ReverseProxy__Clusters__products__Destinations__destination1__Address: http://product-service:8080/
+      ReverseProxy__Clusters__users__Destinations__destination1__Address: http://user-service:8080/
+      ReverseProxy__Clusters__orders__Destinations__destination1__Address: http://order-service:8080/
+      ReverseProxy__Clusters__payments__Destinations__destination1__Address: http://payment-service:8080/
+    ports:
+      - "8080:8080"
+    depends_on:
+      product-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  frontend:
+    image: localhost/ecommerce-frontend:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: ECommerce.Frontend/Containerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8080
+    ports:
+      - "5173:8080"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    profiles:
+      - local-sql
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD}
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q 'SELECT 1'"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    networks:
+      - ecommerce
+
+networks:
+  ecommerce:
+    driver: bridge
+
+volumes:
+  sqlserver-data:

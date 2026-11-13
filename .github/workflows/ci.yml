@@ -1,0 +1,174 @@
+name: Build, test, and publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm-publish:
+        description: Publish images to ACR (manual runs must use the main branch)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore ECommerce.slnx
+      - run: dotnet build ECommerce.slnx --configuration Release --no-restore
+      - run: dotnet test ECommerce.Tests/ECommerce.Tests.csproj --configuration Release --no-build
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ECommerce.Frontend/package-lock.json
+      - run: npm ci
+        working-directory: ECommerce.Frontend
+      - run: npm test
+        working-directory: ECommerce.Frontend
+      - run: npm run lint
+        working-directory: ECommerce.Frontend
+      - run: npm run build
+        working-directory: ECommerce.Frontend
+
+  kubernetes-validation:
+    name: Kubernetes manifest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+      - name: Install manifest validators
+        run: |
+          python -m pip install PyYAML==6.0.2
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Validate GitHub Actions workflows
+        run: actionlint .github/workflows/*.yml
+      - name: Validate references and configuration
+        run: python scripts/validate-k8s.py
+      - name: Validate Kubernetes schemas
+        run: |
+          set -euo pipefail
+          kubectl kustomize k8s > "$RUNNER_TEMP/ecommerce-k8s.yaml"
+          kubeconform -strict -summary "$RUNNER_TEMP/ecommerce-k8s.yaml"
+
+  container-build:
+    name: Podman image build
+    needs: [backend, frontend, kubernetes-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          podman --version
+      - name: Build the four services, gateway, and frontend
+        env:
+          PUBLIC_GATEWAY_URL: ${{ vars.PUBLIC_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          frontend_api_url="${PUBLIC_GATEWAY_URL:-http://localhost:8080}"
+          podman build --tag ecommerce-product-service:ci --file ECommerce.ProductService/Containerfile .
+          podman build --tag ecommerce-user-service:ci --file ECommerce.UserService/Containerfile .
+          podman build --tag ecommerce-order-service:ci --file ECommerce.OrderService/Containerfile .
+          podman build --tag ecommerce-payment-service:ci --file ECommerce.PaymentService/Containerfile .
+          podman build --tag ecommerce-gateway:ci --file ECommerce.Gateway/Containerfile .
+          podman build --tag ecommerce-frontend:ci --file ECommerce.Frontend/Containerfile \
+            --build-arg "VITE_API_BASE_URL=${frontend_api_url}" .
+          podman image inspect ecommerce-product-service:ci ecommerce-user-service:ci \
+            ecommerce-order-service:ci ecommerce-payment-service:ci \
+            ecommerce-gateway:ci ecommerce-frontend:ci
+
+  publish-acr:
+    name: Publish versioned images to ACR
+    needs: [backend, frontend, kubernetes-validation, container-build]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm-publish)
+    runs-on: ubuntu-latest
+    environment: acr-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ACR_NAME: ecommerceacr2026bhavesh
+      ACR_LOGIN_SERVER: ecommerceacr2026bhavesh.azurecr.io
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to Azure using GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Check publishing configuration
+        env:
+          PUBLIC_GATEWAY_URL: ${{ vars.PUBLIC_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PUBLIC_GATEWAY_URL" ]; then
+            echo "Configure the PUBLIC_GATEWAY_URL repository variable before publishing the frontend image."
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate Docker to ACR using the OIDC session
+        run: az acr login --name "$ACR_NAME"
+      - name: Build and publish SHA and main tags with Buildx cache
+        env:
+          PUBLIC_GATEWAY_URL: ${{ vars.PUBLIC_GATEWAY_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          images=(
+            "product-service:ECommerce.ProductService/Containerfile"
+            "user-service:ECommerce.UserService/Containerfile"
+            "order-service:ECommerce.OrderService/Containerfile"
+            "payment-service:ECommerce.PaymentService/Containerfile"
+            "gateway:ECommerce.Gateway/Containerfile"
+            "frontend:ECommerce.Frontend/Containerfile"
+          )
+          for image_spec in "${images[@]}"; do
+            image="${image_spec%%:*}"
+            dockerfile="${image_spec#*:}"
+            build_args=()
+            if [[ "$image" == "frontend" ]]; then
+              build_args+=(--build-arg "VITE_API_BASE_URL=$PUBLIC_GATEWAY_URL")
+            fi
+            docker buildx build \
+              --file "$dockerfile" \
+              --tag "$ACR_LOGIN_SERVER/ecommerce-$image:$IMAGE_TAG" \
+              --tag "$ACR_LOGIN_SERVER/ecommerce-$image:main" \
+              --cache-from "type=gha,scope=$image" \
+              --cache-to "type=gha,mode=max,scope=$image" \
+              --push \
+              "${build_args[@]}" \
+              .
+          done

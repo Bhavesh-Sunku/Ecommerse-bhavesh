@@ -12,6 +12,9 @@ public class OrderResponseDto
     public DateTime OrderDate { get; set; }
     public decimal TotalAmount { get; set; }
     public OrderStatus Status { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string ShippingAddress { get; set; } = string.Empty;
+    public string PhoneNumber { get; set; } = string.Empty;
 
     public List<OrderItemResponseDto> Items { get; set; }
         = new List<OrderItemResponseDto>();

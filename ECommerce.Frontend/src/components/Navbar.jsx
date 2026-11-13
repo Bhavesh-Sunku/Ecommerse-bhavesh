@@ -17,6 +17,7 @@ function Navbar() {
         <Link className="brand" to="/">E-Commerce</Link>
         <div className="nav-links">
           <Link to="/products">Products</Link>
+          {isLoggedIn && <Link to="/cart">Cart</Link>}
           {isLoggedIn && <Link to="/orders">My Orders</Link>}
           {isLoggedIn && role === "Vendor" && <Link to="/vendor/import">Vendor Tools</Link>}
           {!isLoggedIn ? (
@@ -26,7 +27,7 @@ function Navbar() {
             </>
           ) : (
             <>
-              <span>{user?.email}</span>
+              <span>{user?.name || user?.unique_name || user?.email}</span>
               <button className="nav-button" onClick={handleLogout}>Logout</button>
             </>
           )}

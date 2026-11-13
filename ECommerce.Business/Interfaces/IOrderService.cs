@@ -11,6 +11,8 @@ public interface IOrderService
         int userId,
         CreateOrderDto dto);
 
+    Task<OrderResponseDto> CreateFromCartAsync(int userId, PlaceOrderFromCartDto dto);
+
     Task<List<OrderResponseDto>> GetMyOrdersAsync(
         int userId);
 

@@ -39,14 +39,16 @@ export async function apiRequest(
 
       if (typeof errorData === "string" && errorData) {
         message = errorData;
-      } else if (errorData.message) {
-        message = errorData.message;
+      } else if (errorData.title || errorData.detail || errorData.message) {
+        message = errorData.title || errorData.detail || errorData.message;
       }
     } catch {
       // Response did not contain a readable error body.
     }
 
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) {

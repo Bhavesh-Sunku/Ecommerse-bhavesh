@@ -23,6 +23,20 @@ public class ProductRepository : IProductRepository
     {
         return await _context.Products
             .AsNoTracking()
+            .Include(product => product.Inventory)
+            .ToListAsync();
+    }
+
+    public Task<List<string>> GetCategoriesAsync()
+    {
+        return _context.Products
+            .Where(product =>
+                product.IsActive &&
+                product.Inventory != null &&
+                product.Inventory.Quantity > 0)
+            .Select(product => product.Category)
+            .Distinct()
+            .OrderBy(category => category)
             .ToListAsync();
     }
 
@@ -31,6 +45,7 @@ public class ProductRepository : IProductRepository
     {
         return await _context.Products
             .AsNoTracking()
+            .Include(product => product.Inventory)
             .FirstOrDefaultAsync(p => p.Id == id);
     }
 
@@ -67,14 +82,25 @@ public class ProductRepository : IProductRepository
         string? category,
         decimal? minPrice,
         decimal? maxPrice,
+        string sortBy,
+        bool sortDescending,
+        bool includeOutOfStock,
         int pageNumber,
         int pageSize)
     {
         // Start with active products only
         var query = _context.Products
             .AsNoTracking()
+            .Include(product => product.Inventory)
             .Where(p => p.IsActive)
             .AsQueryable();
+
+        if (!includeOutOfStock)
+        {
+            query = query.Where(product =>
+                product.Inventory != null &&
+                product.Inventory.Quantity > 0);
+        }
 
         // Search by product name or description
         if (!string.IsNullOrWhiteSpace(search))
@@ -109,8 +135,20 @@ public class ProductRepository : IProductRepository
         var totalCount = await query.CountAsync();
 
         // Apply sorting and pagination
-        var products = await query
-            .OrderByDescending(p => p.CreatedAt)
+        var sortedQuery = sortBy.ToLowerInvariant() switch
+        {
+            "price" => sortDescending
+                ? query.OrderByDescending(product => product.Price)
+                : query.OrderBy(product => product.Price),
+            "name" => sortDescending
+                ? query.OrderByDescending(product => product.Name)
+                : query.OrderBy(product => product.Name),
+            _ => sortDescending
+                ? query.OrderByDescending(product => product.CreatedAt)
+                : query.OrderBy(product => product.CreatedAt)
+        };
+
+        var products = await sortedQuery
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();

@@ -1,16 +1,12 @@
 import { apiRequest } from "./api";
 
-export function checkout(
+export function createPayment(
   orderId,
-  paymentMethod
+  idempotencyKey,
+  paymentMethod = "mock-success"
 ) {
-  return apiRequest(
-    `/api/Payments/checkout/${orderId}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        paymentMethod
-      })
-    }
-  );
+  return apiRequest("/api/payments", {
+    method: "POST",
+    body: JSON.stringify({ orderId, idempotencyKey, paymentMethod })
+  });
 }

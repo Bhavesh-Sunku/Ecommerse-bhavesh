@@ -22,12 +22,18 @@ logs/
 
 # Local DB / Local settings containing secrets
 # Ignore development-only appsettings to avoid committing secrets.
+/.env
+**/.env
+**/.env.*
+!**/.env.example
+!ECommerce.Frontend/.env.test
 ECommerce.API/appsettings.Development.json
 ECommerce.API/appsettings.Local.json
 ECommerce.API/appsettings.*.Local.json
 
 # Ignore user secrets folder
 secrets.json
+k8s/secrets.yaml
 
 # Rider
 .idea/

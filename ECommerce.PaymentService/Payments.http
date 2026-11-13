@@ -1,0 +1,30 @@
+@paymentBaseUrl = http://localhost:5204
+@token = replace-with-a-valid-jwt
+@orderId = 1
+@declineOrderId = 2
+
+### Initiate a mock successful payment (the idempotency key must be reused for retries)
+POST {{paymentBaseUrl}}/api/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "orderId": {{orderId}},
+  "idempotencyKey": "local-checkout-order-1",
+  "paymentMethod": "mock-success"
+}
+
+### Check the current user's most recent payment for an order
+GET {{paymentBaseUrl}}/api/payments/orders/{{orderId}}
+Authorization: Bearer {{token}}
+
+### Exercise a mock decline with a different unpaid order and idempotency key
+POST {{paymentBaseUrl}}/api/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "orderId": {{declineOrderId}},
+  "idempotencyKey": "local-checkout-order-2-decline",
+  "paymentMethod": "mock-decline"
+}

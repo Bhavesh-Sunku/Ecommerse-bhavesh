@@ -127,9 +127,20 @@ public class AuthService : IAuthService
             ?? throw new InvalidOperationException(
                 "JWT audience is not configured.");
 
-        var expiryMinutes =
-            int.Parse(
-                _configuration["Jwt:ExpiryMinutes"] ?? "60");
+        if (!int.TryParse(
+                _configuration["Jwt:ExpiryMinutes"],
+                out var expiryMinutes) ||
+            expiryMinutes <= 0)
+        {
+            throw new InvalidOperationException(
+                "JWT expiry must be configured as a positive number of minutes.");
+        }
+
+        if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+        {
+            throw new InvalidOperationException(
+                "JWT signing key must contain at least 32 UTF-8 bytes.");
+        }
 
         var claims = new List<Claim>
         {

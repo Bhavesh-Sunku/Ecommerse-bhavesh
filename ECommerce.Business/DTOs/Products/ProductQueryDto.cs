@@ -8,6 +8,12 @@ public class ProductQueryDto
 
     public string? Category { get; set; }
 
+    public string SortBy { get; set; } = "newest";
+
+    public bool SortDescending { get; set; } = true;
+
+    public bool IncludeOutOfStock { get; set; }
+
     [Range(0, double.MaxValue)]
     public decimal? MinPrice { get; set; }
 

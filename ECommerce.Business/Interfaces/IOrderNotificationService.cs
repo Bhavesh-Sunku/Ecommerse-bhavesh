@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-namespace ECommerce.Business.Interfaces;
+﻿namespace ECommerce.Business.Interfaces;
 
 public interface IOrderNotificationService
 {

@@ -10,6 +10,8 @@ public interface IProductRepository
 {
     Task<List<Product>> GetAllAsync();
 
+    Task<List<string>> GetCategoriesAsync();
+
     Task<Product?> GetByIdAsync(int id);
 
     Task<Product> AddAsync(Product product);
@@ -23,6 +25,9 @@ public interface IProductRepository
         string? category,
         decimal? minPrice,
         decimal? maxPrice,
+        string sortBy,
+        bool sortDescending,
+        bool includeOutOfStock,
         int pageNumber,
         int pageSize);
 }

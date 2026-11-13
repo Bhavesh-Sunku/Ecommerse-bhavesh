@@ -1,0 +1,182 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+stages:
+  - stage: BuildAndTest
+    displayName: Build and test
+    jobs:
+      - job: Verify
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - task: UseDotNet@2
+            displayName: Install .NET 10 SDK
+            inputs:
+              packageType: sdk
+              version: 10.x
+
+          - task: NodeTool@0
+            displayName: Install Node.js 22
+            inputs:
+              versionSpec: 22.x
+
+          - script: dotnet restore ECommerce.slnx
+            displayName: Restore solution
+
+          - script: dotnet build ECommerce.slnx --configuration Release --no-restore
+            displayName: Build solution
+
+          - script: dotnet test ECommerce.Tests/ECommerce.Tests.csproj --configuration Release --no-build
+            displayName: Run backend tests
+
+          - script: |
+              npm ci
+              npm test
+              npm run lint
+              npm run build
+            workingDirectory: ECommerce.Frontend
+            displayName: Check and build frontend
+
+  - stage: BuildOciImages
+    displayName: Build OCI images with Podman
+    dependsOn: BuildAndTest
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: BuildImages
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: |
+              sudo apt-get update
+              sudo apt-get install --yes podman
+              podman --version
+              podman info
+            displayName: Install and verify Podman
+
+          - script: |
+              if [ -z "$PUBLIC_GATEWAY_URL" ] || [[ "$PUBLIC_GATEWAY_URL" == *'$('* ]]; then
+                echo "Configure the PUBLIC_GATEWAY_URL pipeline variable before building the frontend image."
+                exit 1
+              fi
+              podman build --tag ecommerce-product-service:$(Build.BuildId) --file ECommerce.ProductService/Containerfile .
+              podman build --tag ecommerce-user-service:$(Build.BuildId) --file ECommerce.UserService/Containerfile .
+              podman build --tag ecommerce-order-service:$(Build.BuildId) --file ECommerce.OrderService/Containerfile .
+              podman build --tag ecommerce-payment-service:$(Build.BuildId) --file ECommerce.PaymentService/Containerfile .
+              podman build --tag ecommerce-gateway:$(Build.BuildId) --file ECommerce.Gateway/Containerfile .
+              podman build --tag ecommerce-frontend:$(Build.BuildId) --file ECommerce.Frontend/Containerfile --build-arg "VITE_API_BASE_URL=$PUBLIC_GATEWAY_URL" .
+              podman image inspect ecommerce-product-service:$(Build.BuildId)
+              podman image inspect ecommerce-user-service:$(Build.BuildId)
+              podman image inspect ecommerce-order-service:$(Build.BuildId)
+              podman image inspect ecommerce-payment-service:$(Build.BuildId)
+              podman image inspect ecommerce-gateway:$(Build.BuildId)
+              podman image inspect ecommerce-frontend:$(Build.BuildId)
+              mkdir -p "$(Build.ArtifactStagingDirectory)/oci"
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/product.oci" ecommerce-product-service:$(Build.BuildId)
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/user.oci" ecommerce-user-service:$(Build.BuildId)
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/order.oci" ecommerce-order-service:$(Build.BuildId)
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/payment.oci" ecommerce-payment-service:$(Build.BuildId)
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/gateway.oci" ecommerce-gateway:$(Build.BuildId)
+              podman save --format oci-archive --output "$(Build.ArtifactStagingDirectory)/oci/frontend.oci" ecommerce-frontend:$(Build.BuildId)
+            displayName: Build, inspect, and export OCI images
+            env:
+              PUBLIC_GATEWAY_URL: $(PUBLIC_GATEWAY_URL)
+
+          - publish: $(Build.ArtifactStagingDirectory)/oci
+            artifact: oci-images
+            displayName: Publish OCI archives
+
+  - stage: PublishImages
+    displayName: Publish images to Azure Container Registry
+    dependsOn: BuildOciImages
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: PushImages
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - download: current
+            artifact: oci-images
+
+          - script: |
+              sudo apt-get update
+              sudo apt-get install --yes podman
+              podman --version
+            displayName: Install and verify Podman
+
+          - script: |
+              podman load --input "$(Pipeline.Workspace)/oci-images/product.oci"
+              podman load --input "$(Pipeline.Workspace)/oci-images/user.oci"
+              podman load --input "$(Pipeline.Workspace)/oci-images/order.oci"
+              podman load --input "$(Pipeline.Workspace)/oci-images/payment.oci"
+              podman load --input "$(Pipeline.Workspace)/oci-images/gateway.oci"
+              podman load --input "$(Pipeline.Workspace)/oci-images/frontend.oci"
+              printf '%s' "$ACR_PASSWORD" | podman login "$ACR_SERVER" --username "$ACR_USERNAME" --password-stdin
+              for image in product-service user-service order-service payment-service gateway frontend; do
+                podman tag "ecommerce-${image}:$(Build.BuildId)" "$ACR_SERVER/ecommerce-${image}:$(Build.BuildId)"
+                podman push "$ACR_SERVER/ecommerce-${image}:$(Build.BuildId)"
+              done
+            displayName: Login and push versioned images
+            env:
+              ACR_SERVER: $(ACR_SERVER)
+              ACR_USERNAME: $(ACR_USERNAME)
+              ACR_PASSWORD: $(ACR_PASSWORD)
+
+  - stage: Deploy
+    displayName: Deploy containers to Azure App Service
+    dependsOn: PublishImages
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployServices
+        environment: ecommerce-production
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy Product Service
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(PRODUCT_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-product-service:$(Build.BuildId)
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy User Service
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(USER_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-user-service:$(Build.BuildId)
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy Order Service
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(ORDER_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-order-service:$(Build.BuildId)
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy Payment Service
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(PAYMENT_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-payment-service:$(Build.BuildId)
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy YARP Gateway
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(GATEWAY_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-gateway:$(Build.BuildId)
+                - task: AzureWebAppContainer@1
+                  displayName: Deploy React Frontend
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    appName: $(FRONTEND_APP_NAME)
+                    containers: $(ACR_SERVER)/ecommerce-frontend:$(Build.BuildId)

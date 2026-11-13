@@ -1,5 +1,6 @@
 ﻿using ECommerce.Business.DTOs.Inventory;
 using ECommerce.Business.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ECommerce.API.Controllers;
@@ -35,6 +36,7 @@ public class InventoryController : ControllerBase
 
     // POST: api/inventory
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> CreateInventory(
         CreateInventoryDto dto)
     {
@@ -49,6 +51,7 @@ public class InventoryController : ControllerBase
 
     // PUT: api/inventory/product/1
     [HttpPut("product/{productId}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateInventory(
         int productId,
         UpdateInventoryDto dto)

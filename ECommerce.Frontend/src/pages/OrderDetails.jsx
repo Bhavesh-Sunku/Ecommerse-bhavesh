@@ -5,7 +5,6 @@ import {
 
 import {
   Link,
-  useNavigate,
   useParams
 } from "react-router-dom";
 
@@ -16,50 +15,68 @@ import {
 
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
+import { formatINR } from "../utils/currency";
 
 function OrderDetails() {
   const { id } = useParams();
 
-  const navigate = useNavigate();
-
-  const [order, setOrder] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const [cancelling, setCancelling] =
-    useState(false);
+  const [orderResult, setOrderResult] = useState({
+    requestKey: null,
+    order: null,
+    error: "",
+    loading: true
+  });
+  const [reloadCount, setReloadCount] = useState(0);
+  const [cancelError, setCancelError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const requestKey = `${id}:${reloadCount}`;
 
   useEffect(() => {
-    loadOrder();
-  }, [id]);
+    let active = true;
 
-  async function loadOrder() {
-    try {
-      setLoading(true);
-      setError("");
-
-      const data =
-        await getOrderById(id);
-
-      setOrder(data);
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
+    async function loadOrder() {
+      try {
+        const data = await getOrderById(id);
+        if (active) {
+          setOrderResult({
+            requestKey,
+            order: data,
+            error: "",
+            loading: false
+          });
+        }
+      } catch (requestError) {
+        if (active) {
+          setOrderResult({
+            requestKey,
+            order: null,
+            error: requestError.message || "Unable to load order.",
+            loading: false
+          });
+        }
+      }
     }
-  }
+
+    loadOrder();
+    return () => {
+      active = false;
+    };
+  }, [id, reloadCount, requestKey]);
+
+  const isCurrentOrder = orderResult.requestKey === requestKey;
+  const order = isCurrentOrder ? orderResult.order : null;
+  const error = isCurrentOrder ? orderResult.error : "";
+  const loading = !isCurrentOrder || orderResult.loading;
 
   async function handleCancel() {
     try {
       setCancelling(true);
-      setError("");
+      setCancelError("");
 
       await cancelOrder(id);
-
-      await loadOrder();
-    } catch (error) {
-      setError(error.message);
+      setReloadCount((current) => current + 1);
+    } catch (requestError) {
+      setCancelError(requestError.message || "Unable to cancel order.");
     } finally {
       setCancelling(false);
     }
@@ -75,7 +92,7 @@ function OrderDetails() {
     return (
       <ErrorMessage
         message={
-          error || "Order not found."
+          error || cancelError || "Order not found."
         }
       />
     );
@@ -87,6 +104,7 @@ function OrderDetails() {
 
   return (
     <div className="details-card">
+      {cancelError && <ErrorMessage message={cancelError} />}
 
       <h1>
         Order #{order.id}
@@ -96,12 +114,16 @@ function OrderDetails() {
         Status: <strong>{status}</strong>
       </p>
 
-      <p>
-        Total: ₹
-        {Number(
-          order.totalAmount
-        ).toLocaleString()}
-      </p>
+      <p>Total: {formatINR(order.totalAmount)}</p>
+
+      {order.shippingAddress && (
+        <section>
+          <h2>Shipping details</h2>
+          <p>{order.customerName}</p>
+          <p>{order.shippingAddress}</p>
+          <p>{order.phoneNumber}</p>
+        </section>
+      )}
 
       <h2>Items</h2>
 
@@ -121,19 +143,9 @@ function OrderDetails() {
                 Quantity: {item.quantity}
               </p>
 
-              <p>
-                Unit Price: ₹
-                {Number(
-                  item.unitPrice
-                ).toLocaleString()}
-              </p>
+              <p>Unit Price: {formatINR(item.unitPrice)}</p>
 
-              <p>
-                Subtotal: ₹
-                {Number(
-                  item.subTotal
-                ).toLocaleString()}
-              </p>
+              <p>Subtotal: {formatINR(item.subtotal ?? item.subTotal)}</p>
             </div>
           )
         )}

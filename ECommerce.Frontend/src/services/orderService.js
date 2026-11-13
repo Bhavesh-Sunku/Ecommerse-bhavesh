@@ -2,12 +2,19 @@ import { apiRequest } from "./api";
 
 export function createOrder(data) {
   return apiRequest(
-    "/api/Orders",
+    "/api/Orders/items",
     {
       method: "POST",
       body: JSON.stringify(data)
     }
   );
+}
+
+export function createOrderFromCart(data) {
+  return apiRequest("/api/Orders/from-cart", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
 }
 
 export function getMyOrders() {

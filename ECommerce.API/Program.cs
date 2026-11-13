@@ -18,8 +18,15 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+// Enable detailed errors and developer exception page in Development
+// This helps show the real exception and stack trace instead of a generic 500.
+builder.Services.Configure<Microsoft.AspNetCore.Builder.DeveloperExceptionPageOptions>(options =>
+{
+    // Keep default options; configure if needed
+});
 
 // ==========================================
 // Controllers
@@ -43,6 +50,20 @@ builder.Services.AddMemoryCache();
 // JWT Authentication
 // ==========================================
 
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException(
+        "JWT signing key is not configured. Set it with user secrets or an environment variable.");
+if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+{
+    throw new InvalidOperationException(
+        "JWT signing key must contain at least 32 UTF-8 bytes.");
+}
+
+var jwtIssuer = builder.Configuration["Jwt:Issuer"]
+    ?? throw new InvalidOperationException("JWT issuer is not configured.");
+var jwtAudience = builder.Configuration["Jwt:Audience"]
+    ?? throw new InvalidOperationException("JWT audience is not configured.");
+
 builder.Services.AddAuthentication(
     JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -55,17 +76,14 @@ builder.Services.AddAuthentication(
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
 
-                ValidIssuer =
-                    builder.Configuration["Jwt:Issuer"],
+            ValidIssuer = jwtIssuer,
 
-                ValidAudience =
-                    builder.Configuration["Jwt:Audience"],
+            ValidAudience = jwtAudience,
 
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(
-                            builder.Configuration["Jwt:Key"]!))
-            };
+            IssuerSigningKey =
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(jwtKey))
+        };
     });
 
 // ==========================================
@@ -75,11 +93,40 @@ builder.Services.AddAuthentication(
 builder.Services.AddAuthorization();
 
 // ==========================================
-// Swagger
+// Swagger + JWT Bearer
 // ==========================================
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc(
+        "v1",
+        new OpenApiInfo
+        {
+            Title = "ECommerce.API",
+            Version = "v1"
+        });
+
+    options.AddSecurityDefinition(
+        "Bearer",
+        new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description =
+                "Enter your JWT token."
+        });
+
+    options.AddSecurityRequirement(
+        document => new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference(
+                "Bearer",
+                document)] = []
+        });
+});
 
 // ==========================================
 // Entity Framework Core
@@ -112,6 +159,10 @@ builder.Services.AddScoped<
     OrderRepository>();
 
 builder.Services.AddScoped<
+    ICartRepository,
+    CartRepository>();
+
+builder.Services.AddScoped<
     IPaymentRepository,
     PaymentRepository>();
 
@@ -134,6 +185,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     IOrderService,
     OrderService>();
+
+builder.Services.AddScoped<
+    ICartService,
+    CartService>();
 
 builder.Services.AddScoped<
     IPaymentService,
@@ -159,15 +214,34 @@ builder.Services.AddScoped<
 // Background Services
 // ==========================================
 
-// Automatically checks and cancels
-// old pending orders.
-builder.Services.AddHostedService<OrderExpirationService>();
+builder.Services.AddHostedService<
+    OrderExpirationService>();
 
 // ==========================================
 // Build Application
 // ==========================================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("ReactClient", policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:5173",
+                "http://localhost:5174")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 
 var app = builder.Build();
+// Show detailed exception page in Development environment
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+
+
 
 // ==========================================
 // Global Exception Handling
@@ -188,6 +262,9 @@ if (app.Environment.IsDevelopment())
 // ==========================================
 // Authentication
 // ==========================================
+app.UseCors("ReactClient");
+
+
 
 app.UseAuthentication();
 
@@ -204,11 +281,14 @@ app.UseAuthorization();
 app.MapControllers();
 
 // ==========================================
-// SignalR Hub
+// SignalR Hubs
 // ==========================================
 
 app.MapHub<OrderNotificationHub>(
     "/hubs/orders");
+
+app.MapHub<ProductHub>(
+    "/hubs/products");
 
 // ==========================================
 // Run Application

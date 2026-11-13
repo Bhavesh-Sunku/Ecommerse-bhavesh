@@ -9,6 +9,14 @@ public interface IOrderRepository
 {
     Task<Order> AddAsync(Order order);
 
+    Task<Order> CreateAtomicallyAsync(
+        Order order,
+        IReadOnlyDictionary<int, int> quantities,
+        int? cartId,
+        int expectedCartItemCount);
+
+    Task<bool> CancelPendingWithRestockAsync(int orderId, int userId);
+
     Task<Order?> GetByIdAsync(int id);
 
     Task<List<Order>> GetByUserIdAsync(int userId);

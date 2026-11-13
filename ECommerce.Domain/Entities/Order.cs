@@ -16,6 +16,12 @@ public class Order
 
     public decimal TotalAmount { get; set; }
 
+    public string CustomerName { get; set; } = string.Empty;
+
+    public string ShippingAddress { get; set; } = string.Empty;
+
+    public string PhoneNumber { get; set; } = string.Empty;
+
     public OrderStatus Status { get; set; }
 
     public User User { get; set; } = null!;

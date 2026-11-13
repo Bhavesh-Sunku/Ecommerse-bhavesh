@@ -34,6 +34,15 @@ export function getProducts(params = {}) {
     );
   }
 
+  if (params.sortBy) {
+    searchParams.set("SortBy", params.sortBy);
+    searchParams.set("SortDescending", String(params.sortDescending ?? true));
+  }
+
+  if (params.includeOutOfStock) {
+    searchParams.set("IncludeOutOfStock", "true");
+  }
+
   searchParams.set(
     "PageNumber",
     params.pageNumber || 1
@@ -50,6 +59,10 @@ export function getProducts(params = {}) {
   return apiRequest(
     `/api/Products?${query}`
   );
+}
+
+export function getProductCategories() {
+  return apiRequest("/api/Products/categories");
 }
 
 export function getProductById(id) {

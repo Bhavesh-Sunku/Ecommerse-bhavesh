@@ -15,6 +15,10 @@ public class ProductResponseDto
 
     public string Category { get; set; } = string.Empty;
 
+    public string ImageUrl { get; set; } = string.Empty;
+
+    public int AvailableStock { get; set; }
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAt { get; set; }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace ECommerce.Business.DTOs.Auth;
 
@@ -24,4 +25,7 @@ public class RegisterDto
     [Required]
     [StringLength(100, MinimumLength = 6)]
     public string Password { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string Role { get; set; } = "Customer";
 }

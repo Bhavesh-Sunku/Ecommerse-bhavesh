@@ -12,13 +12,16 @@ public class InventoryService : IInventoryService
 {
     private readonly IInventoryRepository _inventoryRepository;
     private readonly IProductRepository _productRepository;
+    private readonly IProductService _productService;
 
     public InventoryService(
         IInventoryRepository inventoryRepository,
-        IProductRepository productRepository)
+        IProductRepository productRepository,
+        IProductService productService)
     {
         _inventoryRepository = inventoryRepository;
         _productRepository = productRepository;
+        _productService = productService;
     }
 
     // Get inventory by product ID
@@ -89,6 +92,7 @@ public class InventoryService : IInventoryService
         var createdInventory =
             await _inventoryRepository.AddAsync(inventory);
 
+        _productService.InvalidateCatalogCache();
         return MapToResponseDto(createdInventory);
     }
 
@@ -123,6 +127,7 @@ public class InventoryService : IInventoryService
 
         await _inventoryRepository.UpdateAsync(inventory);
 
+        _productService.InvalidateCatalogCache();
         return true;
     }
 

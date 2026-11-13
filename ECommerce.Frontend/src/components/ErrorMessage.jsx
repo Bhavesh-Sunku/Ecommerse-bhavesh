@@ -3,7 +3,7 @@ function ErrorMessage({ message }) {
     return null;
   }
 
-  return <div className="error">{message}</div>;
+  return <div className="error" role="alert">{message}</div>;
 }
 
 export default ErrorMessage;

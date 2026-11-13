@@ -16,6 +16,8 @@ public class EcommerceDbContext : DbContext
     }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<Cart> Carts => Set<Cart>();
+    public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Inventory> Inventories => Set<Inventory>();
     public DbSet<Order> Orders => Set<Order>();
@@ -31,6 +33,31 @@ public class EcommerceDbContext : DbContext
             .HasMany(u => u.Orders)
             .WithOne(o => o.User)
             .HasForeignKey(o => o.UserId);
+
+        modelBuilder.Entity<Cart>()
+            .HasOne(c => c.User)
+            .WithOne()
+            .HasForeignKey<Cart>(c => c.UserId);
+
+        modelBuilder.Entity<Cart>()
+            .HasIndex(c => c.UserId)
+            .IsUnique();
+
+        modelBuilder.Entity<Cart>()
+            .HasMany(c => c.Items)
+            .WithOne(item => item.Cart)
+            .HasForeignKey(item => item.CartId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CartItem>()
+            .HasOne(item => item.Product)
+            .WithMany(product => product.CartItems)
+            .HasForeignKey(item => item.ProductId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CartItem>()
+            .HasIndex(item => new { item.CartId, item.ProductId })
+            .IsUnique();
 
         // Order -> OrderItems
         modelBuilder.Entity<Order>()

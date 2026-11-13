@@ -11,4 +11,9 @@
     <ProjectReference Include="..\ECommerce.Domain\ECommerce.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.104.0" />
+    <PackageReference Include="System.IO.Packaging" Version="10.0.12" />
+  </ItemGroup>
+
 </Project>

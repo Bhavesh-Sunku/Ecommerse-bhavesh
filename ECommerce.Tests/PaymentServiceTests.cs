@@ -13,7 +13,7 @@ namespace ECommerce.Tests;
 public class PaymentServiceTests
 {
     [Fact]
-    public async Task CheckoutAsync_PendingOrder_CreatesSuccessfulPayment()
+    public async Task CheckoutAsync_WhenProviderIsNotConfigured_DoesNotCreatePayment()
     {
         // Arrange
         var order = new Order
@@ -46,9 +46,7 @@ public class PaymentServiceTests
                 return payment;
             });
 
-        var service = new PaymentService(
-            orderRepository.Object,
-            paymentRepository.Object);
+        var service = new PaymentService();
 
         var dto = new CheckoutDto
         {
@@ -56,21 +54,14 @@ public class PaymentServiceTests
         };
 
         // Act
-        var result =
-            await service.CheckoutAsync(
-                1,
-                1,
-                dto);
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            service.CheckoutAsync(1, 1, dto));
 
-        // Assert
-        Assert.Equal(
-            PaymentStatus.Successful,
-            result.PaymentStatus);
-
-        Assert.Equal(1000, result.Amount);
-
-        Assert.Equal(
-            OrderStatus.Confirmed,
-            order.Status);
+        paymentRepository.Verify(
+            repository => repository.AddAsync(It.IsAny<Payment>()),
+            Times.Never);
+        orderRepository.Verify(
+            repository => repository.UpdateAsync(It.IsAny<Order>()),
+            Times.Never);
     }
 }

@@ -9,6 +9,8 @@ public interface IProductService
 {
     Task<List<ProductResponseDto>> GetAllAsync();
 
+    Task<List<string>> GetCategoriesAsync();
+
     Task<ProductResponseDto?> GetByIdAsync(int id);
 
     Task<ProductResponseDto> CreateAsync(
@@ -22,4 +24,10 @@ public interface IProductService
 
     Task<ProductPagedResponseDto> GetCatalogAsync(
         ProductQueryDto query);
+
+    void InvalidateCatalogCache();
+
+    Task<BulkImportResultDto> ImportFromExcelAsync(
+        System.IO.Stream fileStream,
+        string fileName);
 }

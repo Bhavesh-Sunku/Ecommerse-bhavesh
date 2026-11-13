@@ -1,5 +1,6 @@
 ﻿using ECommerce.Business.DTOs.Products;
 using ECommerce.Business.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ECommerce.API.Controllers;
@@ -25,6 +26,12 @@ public class ProductsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("categories")]
+    public async Task<IActionResult> GetCategories()
+    {
+        return Ok(await _productService.GetCategoriesAsync());
+    }
+
     // GET: api/products/1
     [HttpGet("{id}")]
     public async Task<IActionResult> GetProduct(int id)
@@ -41,6 +48,7 @@ public class ProductsController : ControllerBase
 
     // POST: api/products
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> CreateProduct(
         CreateProductDto dto)
     {
@@ -55,6 +63,7 @@ public class ProductsController : ControllerBase
 
     // PUT: api/products/1
     [HttpPut("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateProduct(
         int id,
         UpdateProductDto dto)
@@ -72,6 +81,7 @@ public class ProductsController : ControllerBase
 
     // DELETE: api/products/1
     [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteProduct(int id)
     {
         var deleted =

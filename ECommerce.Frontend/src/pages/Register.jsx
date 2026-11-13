@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { registerUser } from "../services/authService";
 
@@ -11,7 +11,7 @@ function Register() {
     lastName: "",
     email: "",
     password: "",
-    role: "Customer"
+    confirmPassword: ""
   });
 
   const [error, setError] = useState("");
@@ -28,10 +28,20 @@ function Register() {
 
     setError("");
     setMessage("");
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Password must contain at least 6 characters.");
+      return;
+    }
     setLoading(true);
 
     try {
-      await registerUser(form);
+      const registration = { ...form };
+      delete registration.confirmPassword;
+      await registerUser(registration);
 
       setMessage("Registration successful. You can now login.");
 
@@ -105,11 +115,14 @@ function Register() {
         </label>
 
         <label>
-          Role
-          <select name="role" value={form.role} onChange={handleChange}>
-            <option value="Customer">Customer</option>
-            <option value="Vendor">Vendor</option>
-          </select>
+          Confirm password
+          <input
+            type="password"
+            name="confirmPassword"
+            value={form.confirmPassword}
+            onChange={handleChange}
+            required
+          />
         </label>
 
         <button type="submit" disabled={loading}>
@@ -117,7 +130,7 @@ function Register() {
         </button>
 
         <p className="auth-link-row">
-          Already registered? <a href="/login">Login</a>
+          Already registered? <Link to="/login">Login</Link>
         </p>
       </form>
     </div>

@@ -22,5 +22,11 @@ public class UpdateProductDto
     [StringLength(100)]
     public string Category { get; set; } = string.Empty;
 
+    [StringLength(2048)]
+    public string ImageUrl { get; set; } = string.Empty;
+
+    [Range(0, int.MaxValue)]
+    public int StockQuantity { get; set; }
+
     public bool IsActive { get; set; }
 }

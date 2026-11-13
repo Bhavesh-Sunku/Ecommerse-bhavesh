@@ -4,6 +4,7 @@ import {
 } from "react";
 
 import {
+  Link,
   useNavigate,
   useParams
 } from "react-router-dom";
@@ -12,18 +13,13 @@ import {
   getProductById
 } from "../services/productService";
 
-import {
-  getInventory
-} from "../services/inventoryService";
-
-import {
-  createOrder
-} from "../services/orderService";
+import { addCartItem } from "../services/cartService";
 
 import { useAuth } from "../hooks/useAuth";
 
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
+import { formatINR } from "../utils/currency";
 
 function ProductDetails() {
   const { id } = useParams();
@@ -32,76 +28,76 @@ function ProductDetails() {
 
   const { isLoggedIn } = useAuth();
 
-  const [product, setProduct] = useState(null);
-  const [inventory, setInventory] = useState(null);
-
   const [quantity, setQuantity] = useState(1);
-
-  const [loading, setLoading] = useState(true);
-  const [ordering, setOrdering] = useState(false);
-
-  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [productResult, setProductResult] = useState({
+    id: null,
+    product: null,
+    error: "",
+    loading: true
+  });
 
   useEffect(() => {
+    let active = true;
+
+    async function loadProduct() {
+      try {
+        const productData = await getProductById(id);
+        if (active) {
+          setProductResult({
+            id,
+            product: productData,
+            error: "",
+            loading: false
+          });
+        }
+      } catch (requestError) {
+        if (active) {
+          setProductResult({
+            id,
+            product: null,
+            error: requestError.message || "Unable to load product.",
+            loading: false
+          });
+        }
+      }
+    }
+
     loadProduct();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
-  async function loadProduct() {
-    try {
-      setLoading(true);
-      setError("");
+  const isCurrentProduct = productResult.id === id;
+  const product = isCurrentProduct ? productResult.product : null;
+  const error = isCurrentProduct ? productResult.error : "";
+  const loading = !isCurrentProduct || productResult.loading;
 
-      const [
-        productData,
-        inventoryData
-      ] = await Promise.all([
-        getProductById(id),
-        getInventory(id)
-      ]);
-
-      setProduct(productData);
-      setInventory(inventoryData);
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleBuy() {
+  async function handleAddToCart() {
     if (!isLoggedIn) {
       navigate("/login");
       return;
     }
 
-    if (
-      !inventory ||
-      quantity > inventory.quantity
-    ) {
-      setError("Insufficient stock.");
+    const availableStock = product?.availableStock ?? 0;
+    if (quantity > availableStock) {
+      setProductResult((current) => ({ ...current, error: "Insufficient stock." }));
       return;
     }
 
     try {
-      setOrdering(true);
-      setError("");
-
-      const order = await createOrder({
-        items: [
-          {
-            productId: Number(id),
-            quantity: Number(quantity)
-          }
-        ]
-      });
-
-      navigate(
-        `/checkout/${order.id}`
-      );
-    } catch (error) {
-      setError(error.message);
+      setAdding(true);
+      setProductResult((current) => ({ ...current, error: "" }));
+      await addCartItem(Number(id), Number(quantity));
+      navigate("/cart");
+    } catch (requestError) {
+      setProductResult((current) => ({
+        ...current,
+        error: requestError.message || "Unable to add this product."
+      }));
     } finally {
-      setOrdering(false);
+      setAdding(false);
     }
   }
 
@@ -124,15 +120,16 @@ function ProductDetails() {
   return (
     <div className="details-card">
 
+      {product.imageUrl && (
+        <img className="details-image" src={product.imageUrl} alt={product.name} />
+      )}
       <h1>{product.name}</h1>
 
       <p>
         {product.description}
       </p>
 
-      <h2>
-        ₹{Number(product.price).toLocaleString()}
-      </h2>
+      <h2>{formatINR(product.price)}</h2>
 
       <p>
         Category: {product.category}
@@ -140,42 +137,48 @@ function ProductDetails() {
 
       <p>
         Available Stock:{" "}
-        {inventory?.quantity ?? 0}
+        {product.availableStock ?? 0}
       </p>
 
       {error && (
         <ErrorMessage message={error} />
       )}
 
-      <label>
+      <label htmlFor="product-quantity">
         Quantity
       </label>
 
       <input
+        id="product-quantity"
         className="quantity-input"
         type="number"
         min="1"
-        max={inventory?.quantity || 1}
+        max={Math.min(10, product.availableStock || 1)}
         value={quantity}
-        onChange={(event) =>
-          setQuantity(event.target.value)
-        }
+        onChange={(event) => {
+          const nextQuantity = Number(event.target.value);
+          if (
+            Number.isInteger(nextQuantity) &&
+            nextQuantity >= 1 &&
+            nextQuantity <= Math.min(10, product.availableStock || 1)
+          ) {
+            setQuantity(nextQuantity);
+          }
+        }}
       />
 
       <br />
 
       <button
-        onClick={handleBuy}
+        onClick={handleAddToCart}
         disabled={
-          ordering ||
-          !inventory ||
-          inventory.quantity === 0
+          adding ||
+          !product.availableStock
         }
       >
-        {ordering
-          ? "Creating Order..."
-          : "Buy Now"}
+        {adding ? "Adding..." : "Add to Cart"}
       </button>
+      <Link className="button secondary" to="/products">Back to products</Link>
 
     </div>
   );

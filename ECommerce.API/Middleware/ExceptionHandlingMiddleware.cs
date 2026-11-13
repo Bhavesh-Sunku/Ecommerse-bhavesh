@@ -51,6 +51,9 @@ public class ExceptionHandlingMiddleware
             InvalidOperationException =>
                 StatusCodes.Status409Conflict,
 
+            NotSupportedException =>
+                StatusCodes.Status501NotImplemented,
+
             _ =>
                 StatusCodes.Status500InternalServerError
         };
@@ -67,6 +70,9 @@ public class ExceptionHandlingMiddleware
                 exception.Message,
 
             InvalidOperationException =>
+                exception.Message,
+
+            NotSupportedException =>
                 exception.Message,
 
             _ =>
